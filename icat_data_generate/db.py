@@ -1,0 +1,301 @@
+import itertools
+import random
+
+from icat_data_generate.iterators.accessmap_iterator import AccessMapIterator
+from icat_data_generate.iterators.coll_iterator import CollectionIterator
+from icat_data_generate.iterators.dataobject_iterator import DataObjectIterator
+from icat_data_generate.iterators.metadata_iterator import MetadataIterator
+from icat_data_generate.iterators.metadatamap_iterator import MetadataMapIterator
+from icat_data_generate.iterators.resc_iterator import RescIterator
+from icat_data_generate.iterators.user_iterator import UserIterator
+
+import psycopg2
+from psycopg2 import extras
+
+
+class DataGenerator:
+
+    def __init__(self, args):
+        self.args = args
+        self.pg_conn = self._get_connection(True)
+        self.user_iterator = None
+        self.resc_iterator = None
+        self.coll_iterator = None
+        self.data_iterator = None
+        self.meta_iterator = None
+
+    def _get_connection(self, initial_connection):
+        a = self.args
+        dbname = "postgres" if initial_connection else a.db_name
+        conn = psycopg2.connect(f"user='{a.db_user}' host='{a.db_host}' " +
+                                f"password='{a.db_password}' " +
+                                f"port='{str(a.db_port)}'"
+                                f"dbname='{dbname}'")
+        conn.autocommit = True
+        return conn
+
+    def connect(self):
+        self.conn = self._get_connection(False)
+
+    def db_exists(self, dbname):
+        """Checks whether a Postgres database exists
+
+           :param dbname: Name of database to look for
+           :returns: boolean value - whether database exists
+        """
+        with self.pg_conn.cursor() as cur:
+            cur.execute("SELECT datname FROM pg_database;")
+            dblist = cur.fetchall()
+        return dbname in dblist
+
+    def create_db(self):
+        """Creates a new database."""
+        with self.pg_conn.cursor() as cursor:
+            cursor.execute(f"CREATE DATABASE {self.args.db_name}")
+
+    def initialize_schema(self, schema):
+        with self.conn.cursor() as cur:
+            cur.execute(schema)
+
+    def populate_data(self):
+        # Users
+        user_query = "INSERT INTO r_user_main (user_id, user_name, user_type_name, zone_name) VALUES %s"
+        user_template = "(NEXTVAL('R_ObjectID'), %s, %s, %s)"
+        self.insert_table_data(user_query,
+                               user_template,
+                               "r_user_main",
+                               self.args.nu,
+                               self.gen_data_user)
+        # Resources
+        resc_query = "INSERT INTO r_resc_main (resc_id, resc_name, zone_name, resc_type_name, resc_class_name, resc_net, resc_def_path) VALUES %s"
+        resc_template = "(NEXTVAL('R_ObjectID'), %s, %s, %s, %s, %s, %s)"
+        self.insert_table_data(resc_query,
+                               resc_template,
+                               "r_resc_main",
+                               self.args.nr,
+                               self.gen_data_resc)
+        # Collections
+        coll_query = "INSERT INTO r_coll_main (coll_id, parent_coll_name, coll_name, coll_owner_name, coll_owner_zone, create_ts, modify_ts) VALUES %s"
+        coll_template = "(NEXTVAL('R_ObjectID'), %s, %s, %s, %s, %s, %s)"
+        self.insert_table_data(coll_query,
+                               coll_template,
+                               "r_coll_main",
+                               self.args.nc,
+                               self.gen_data_coll)
+        # Data objects
+        do_query = "INSERT INTO r_data_main (data_id, coll_id, data_name, data_repl_num, data_type_name, data_size, resc_name, data_path, data_owner_name, data_owner_zone, create_ts, modify_ts) VALUES %s"
+        do_template = "(NEXTVAL('R_ObjectID'), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        self.insert_table_data(do_query,
+                               do_template,
+                               "r_data_main",
+                               self.args.nd,
+                               self.gen_data_do)
+        # Metadata AVUs
+        meta_query = "INSERT INTO r_meta_main (meta_id, meta_attr_name, meta_attr_value, meta_attr_unit) VALUES %s"
+        meta_template = "(NEXTVAL('R_ObjectID'), %s, %s, %s)"
+        self.insert_table_data(meta_query,
+                               meta_template,
+                               "r_meta_main",
+                               self.args.nm,
+                               self.gen_data_metadata)
+        # Metadata map
+        metamap_query = "INSERT INTO r_objt_metamap (object_id, meta_id) VALUES %s"
+        metamap_template = "(%s, %s)"
+        self.insert_table_data(metamap_query,
+                               metamap_template,
+                               "r_objt_metamap",
+                               self.args.nmm,
+                               self.gen_data_metamap)
+        # Object access map
+        access_query = "INSERT INTO r_objt_access (object_id, user_id, access_type_id) VALUES %s"
+        access_template = "(%s, %s, %s)"
+        self.insert_table_data(access_query,
+                               access_template,
+                               "r_objt_access",
+                               self.args.na,
+                               self.gen_data_access)
+
+    def insert_table_data(self, query, query_template, table, number, function):
+        retries_left = number
+        cur = self.conn.cursor()
+        num_left = number
+        # We currently don't have a way to check uniqueness of meta data map and ACL
+        # entries before inserting them. We process them one at a time, so we can optimize
+        # later.
+        if table in ["r_objt_access", "r_objt_metamap"]:
+            batch_size = 1
+        else:
+            batch_size = self.args.batch_size
+        # We process data in batches here in order to be able to query random
+        # referential external keys in the iterator functions in an efficient way.
+        while num_left > 0:
+            cur_batch_size = min([batch_size, num_left])
+            if self.args.verbose:
+                print(f"Processing batch of {str(cur_batch_size)} ... for table {table}.")
+            with self.conn.cursor() as cur:
+                try:
+                    extras.execute_values(cur, query, function(cur_batch_size), template=query_template)
+                except psycopg2.errors.UniqueViolation:
+                    if retries_left > 0:
+                        retries_left -= 1
+                    else:
+                        print(f"Out of uniqueness violation retries for table {table}")
+                        exit(1)
+                # We recalculate the number of records left to add based on row count, so that
+                # we can adjust for inserts that failed (if any) and any initial seed data in the table.
+                # Execute_values doesn't return a row count, so we can't rely on that either.
+                num_left = max(0, number-self._count_rows(table))
+
+    def add_seed_data(self):
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO r_zone_main (zone_id, zone_name, zone_type_name, create_ts, modify_ts) " +
+                "VALUES (9000, 'testZone','local', '1170000000', '1170000000')")
+            cur.execute(
+                "INSERT INTO r_coll_main (coll_id, coll_name, parent_coll_name, coll_owner_name, coll_owner_zone, create_ts, modify_ts) " +
+                "VALUES (9020, '/', '/', 'rods', 'testZone', '1170000000', '1170000000')")
+            cur.execute(
+                "INSERT INTO r_user_main (user_id, user_name, user_type_name, zone_name, create_ts, modify_ts) " +
+                "VALUES (9010, 'rods', 'rodsadmin', 'testZone', '1170000000', '1170000000')")
+
+    def gen_data_user(self, number):
+        if self.user_iterator is None:
+            self.user_iterator = UserIterator(number, "testZone")
+        else:
+            self.user_iterator.extend(number)
+        return self.user_iterator
+
+    def gen_data_resc(self, number):
+        if self.resc_iterator is None:
+            self.resc_iterator = RescIterator(number, "testZone")
+        else:
+            self.resc_iterator.extend(number)
+        return self.resc_iterator
+
+    def gen_data_metadata(self, number):
+        if self.meta_iterator is None:
+            self.meta_iterator = MetadataIterator(number)
+        else:
+            self.meta_iterator.extend(number)
+        return self.meta_iterator
+
+    def gen_data_metamap(self, number):
+        meta_id_sample = self._get_random_sample("r_meta_main",
+                                                 ["meta_id"],
+                                                 self._count_rows("r_meta_main"),
+                                                 number)
+        return MetadataMapIterator(number,
+                                   self.gen_objectid_sample(number),
+                                   meta_id_sample)
+
+    def gen_data_access(self, number):
+        user_id_sample = self._get_random_sample("r_user_main",
+                                                 ["user_id"],
+                                                 self._count_rows("r_user_main"),
+                                                 number)
+        return AccessMapIterator(number,
+                                 self.gen_objectid_sample(number),
+                                 user_id_sample)
+
+    def gen_objectid_sample(self, number):
+        if number % 2 == 0:
+            number_coll_meta = int(number / 2)
+            number_do_meta = int(number / 2)
+        else:
+            # Add an extra element so that we can zip the coll / DO Ids
+            number_coll_meta = int(number / 2) + 1
+            number_do_meta = int(number / 2) + 1
+        coll_id_sample = self._get_random_sample("r_coll_main",
+                                                 ["coll_id"],
+                                                 self._count_rows("r_coll_main"),
+                                                 number_coll_meta)
+        do_id_sample = self._get_random_sample("r_data_main",
+                                               ["data_id"],
+                                               self._count_rows("r_data_main"),
+                                               number_do_meta)
+        return itertools.chain.from_iterable(zip(coll_id_sample, do_id_sample))
+
+    def gen_data_coll(self, number):
+        coll_name_sample = self._get_random_sample("r_coll_main",
+                                                   ["coll_name"],
+                                                   self._count_rows("r_coll_main"),
+                                                   number)
+        owner_sample = self._get_random_sample("r_user_main",
+                                               ["user_name"],
+                                               self._count_rows("r_user_main"),
+                                               number)
+        if self.coll_iterator is None:
+            self.coll_iterator = CollectionIterator(number,
+                                                    coll_name_sample,
+                                                    owner_sample)
+        else:
+            self.coll_iterator.extend(number, coll_name_sample, owner_sample)
+        return self.coll_iterator
+
+    def gen_data_do(self, number):
+        coll_sample = self._get_random_sample("r_coll_main",
+                                              ["coll_id", "coll_name"],
+                                              self._count_rows("r_coll_main"),
+                                              number)
+        resc_sample = self._get_random_sample("r_resc_main",
+                                              ["resc_name"],
+                                              self._count_rows("r_resc_main"),
+                                              number)
+        user_sample = self._get_random_sample("r_user_main",
+                                              ["user_name"],
+                                              self._count_rows("r_user_main"),
+                                              number)
+        if self.data_iterator is None:
+            self.data_iterator = DataObjectIterator(number,
+                                                    coll_sample,
+                                                    resc_sample,
+                                                    user_sample,
+                                                    "testZone")
+        else:
+            self.data_iterator.extend(number, coll_sample, resc_sample, user_sample)
+        return self.data_iterator
+
+    def _count_rows(self, table):
+        query = f"SELECT COUNT(*) FROM {table}"
+        with self.conn.cursor() as cur:
+            cur.execute(query)
+            count = cur.fetchall()
+            return count[0][0]
+
+    def _get_random_sample(self, table, columns, num_rows, num_sample):
+        """ Gets a list of samples from a particular column of a
+            particular table. Samples aren't necessarily unique.
+
+            :param table: name of database table
+            :param columns: list of database columns to return
+            :param num_rows: number of rows in the table (so that we don't have to do
+                             table count for every sample).
+            :param num_sample: number of samples.
+            :returns: random list of result tuples
+            :raises Exception: if unable to retrieve sample
+        """
+        # Set random probability to select a row a bit higher than proportional
+        # in order to reduce the chance we end up with fewer rows than
+        # num_sample. Loop until we have selected at least 1 sample.
+        sample_source_size = 0
+        max_sample_retries = 20
+        sample_retry = 0
+        while sample_source_size == 0:
+            if sample_retry > max_sample_retries:
+                raise Exception("To many retries when getting random sample")
+
+            query_factor = 1.5
+            query_prob = min([1.0, (num_sample / num_rows) * query_factor])
+
+            column_list = str.join(",", columns)
+
+            query = f"SELECT {column_list} FROM {table} WHERE RANDOM() < {str(query_prob)}"
+
+            with self.conn.cursor() as cur:
+                cur.execute(query)
+                sample = cur.fetchall()
+                sample_source_size = len(sample)
+
+            sample_retry += 1
+
+        return iter(random.choices(sample, k=num_sample))
