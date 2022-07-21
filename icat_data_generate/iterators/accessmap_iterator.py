@@ -16,3 +16,8 @@ class AccessMapIterator(IrodsIterator):
             return (object_id, user_id, 1200)
         else:
             raise StopIteration()
+
+    def extend(self, add_number, object_id_sample, user_id_sample):
+        self.object_id_sample = object_id_sample
+        self.user_id_sample = user_id_sample
+        super().extend(add_number)

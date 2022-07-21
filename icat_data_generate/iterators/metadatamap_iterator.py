@@ -16,3 +16,8 @@ class MetadataMapIterator(IrodsIterator):
             return (object_id, meta_id)
         else:
             raise StopIteration()
+
+    def extend(self, add_number, object_id_sample, meta_id_sample):
+        self.object_id_sample = object_id_sample
+        self.meta_id_sample = meta_id_sample
+        super().extend(add_number)
