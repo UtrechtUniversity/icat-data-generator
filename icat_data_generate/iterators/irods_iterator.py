@@ -7,7 +7,7 @@ class IrodsIterator:
         return self
 
     def __next__(self):
-        if self.max_number == 0 or self.max_number >= self.current:
+        if self.max_number == 0 or self.max_number > self.current:
             self.current += 1
             return self.current
         else:
