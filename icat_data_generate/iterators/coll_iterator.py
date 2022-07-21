@@ -15,7 +15,7 @@ class CollectionIterator(IrodsIterator):
             self.current += 1
             coll_parent_name = next(self.collname_sample)[0]
             while len(coll_parent_name) > 500:
-                # Keep parent collection names to a managable size so
+                # Keep parent collection names to a manageable size so
                 # we don't exceed maximum path length
                 (coll_parent_name, _) = os.path.split(coll_parent_name)
             coll_base_name = "coll"+str(self.current)

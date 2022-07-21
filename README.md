@@ -1,5 +1,13 @@
 # icat-data-generator
-synthetic data generator for testing iRODS iCAT database
+
+Icat-data-generator is a tool for generating synthetic data for an iRODS
+iCAT database. The main intended use case is to quickly generate iCAT database
+contents for performance testing.
+
+Icat-data-generator supports Postgres databases. It should work on any Linux
+system with Python 3.6 or higher.
+
+It has been tested with Postgres MD5 authentication.
 
 ## Usage
 
