@@ -9,6 +9,69 @@ system with Python 3.6 or higher.
 
 It has been tested with Postgres MD5 authentication.
 
+## Installation
+
+### CentOS 7
+
+First install Postgres, Python 3 and development dependencies of psycopg2
+
+```
+sudo yum -y install postgresql-server postgresql-devel python3 python3-devel python-virtualenv gcc git
+```
+
+Next initialize Postgres:
+
+```
+sudo postgresql-setup initdb
+```
+
+Adapt your pg\_hba.conf file in /var/lib/pgsql/data so that MD5 authentication is available for local
+connections. Example configuration lines for local connections:
+
+```
+host    all             all             127.0.0.1/32            md5
+host    all             all             ::1/128                 md5
+```
+
+Start Postgres:
+
+```
+sudo systemctl start postgresql
+```
+
+Set a password on the Postgres database account, or create another account
+you would like to use for the data generator. Example:
+
+
+```
+sudo -iu postgres psql
+psql (9.2.24)
+Type "help" for help.
+
+postgres=# \password postgres
+Enter new password:
+Enter it again:
+postgres=# \q
+```
+
+Install the data generator in a virtualenv. Example:
+
+```
+git clone https://github.com/UtrechtUniversity/icat-data-generator.git
+virtualenv --python /usr/bin/python3 venv
+source venv/bin/activate
+pip3 install --upgrade ./icat-data-generator
+```
+
+Now you can use the data generator to generate a test iCAT database, like
+so (adjust the credentials in the -u and -p parameters so that they
+match the Postgres account you will be using):
+
+```
+icat-data-gen --nc 20000 -d icat_test -u postgres -p postgres
+```
+
+
 ## Usage
 
 ```
