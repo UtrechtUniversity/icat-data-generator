@@ -114,3 +114,5 @@ optional arguments:
   -s {8}, --schema {8}  Schema version
 ```
 
+The batch size and number arguments support abbreviated numbers,
+e.g. "100k" for 100,000 and "10m" for 10,000,000.

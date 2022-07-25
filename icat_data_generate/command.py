@@ -1,5 +1,6 @@
+import re
 import sys
-from argparse import ArgumentParser
+from argparse import ArgumentParser, ArgumentTypeError
 
 from icat_data_generate import icat_schemas
 from icat_data_generate.db import DataGenerator
@@ -38,42 +39,42 @@ def get_arguments():
         '-b', "--batch-size",
         default=1000,
         help='Default batch size for database inserts and sample queries',
-        type=int)
+        type=arg_convenientnumber_type)
     parser.add_argument(
         "--nc", "--num-collections",
         default=20,
         help='Number of collections to create',
-        type=int)
+        type=arg_convenientnumber_type)
     parser.add_argument(
         '--nd', "--num-dataobjects",
         default=20,
         help='Number of data objects to create',
-        type=int)
+        type=arg_convenientnumber_type)
     parser.add_argument(
         '--nm', "--num-metadata",
         default=20,
         help='Number of metadata AVUs to create',
-        type=int)
+        type=arg_convenientnumber_type)
     parser.add_argument(
         '--nmm', "--num-metadata-map",
         default=20,
         help='Number of metadata map entries to create',
-        type=int)
+        type=arg_convenientnumber_type)
     parser.add_argument(
         '--na', "--num-access",
         default=20,
         help='Number of object access entries to create',
-        type=int)
+        type=arg_convenientnumber_type)
     parser.add_argument(
         '--nu', "--num-users",
         default=20,
         help='Number of users to create',
-        type=int)
+        type=arg_convenientnumber_type)
     parser.add_argument(
         '--nr', "--num-resc",
         default=20,
         help='Number of resources to create',
-        type=int)
+        type=arg_convenientnumber_type)
     parser.add_argument(
         '-s', "--schema",
         default=8,
@@ -82,6 +83,30 @@ def get_arguments():
         choices=icat_schemas.get_available_schemas())
     args = parser.parse_args()
     return args
+
+
+def arg_convenientnumber_type(arg):
+    """Custom argparse type for numbers. It supports the following formats:
+       - regular numbers, e.g. "123"
+       - thousands, e.g. "456k" means: 456.000
+       - millions, e.g. "789m" means: 789.000.000
+
+       :param arg:  argument (string) to parse
+       :returns:  an int (parsed argument)
+
+       :raises ArgumentTypeError: if the argument can't be parsed.
+    """
+    if not re.match("^[0-9]+[km]?$", arg.lower()):
+        message = "Argument {} is not a valid number. ".format(arg) + \
+                  "Expecting 123/456k/789m."
+        raise ArgumentTypeError(message)
+
+    if arg.lower()[-1] == "k":
+        return int(arg.lower()[:-1]) * 1000
+    elif arg.lower()[-1] == "m":
+        return int(arg.lower()[:-1]) * 1000000
+    else:
+        return int(arg)
 
 
 def entry():
