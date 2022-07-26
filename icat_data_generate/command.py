@@ -1,6 +1,7 @@
 import re
 import sys
 from argparse import ArgumentParser, ArgumentTypeError
+from textwrap import dedent
 
 from icat_data_generate import icat_schemas
 from icat_data_generate.db import DataGenerator
@@ -116,8 +117,30 @@ def entry():
         print("Script interrupted by user.", file=sys.stderr)
 
 
+def _exit_with_error(message):
+    print(message, file=sys.stderr)
+    sys.exit(1)
+
+
+def check_args(args):
+    n_objects = args.nc + args.nd
+    if (n_objects * args.nm < args.nmm):
+        _exit_with_error(dedent('''
+            Error: number of C/D objects (data objects + collections) times
+            metadata entries should be equal to or more than metadata map
+            entries. Add more collections, data objects and/or metadata
+            entries.'''))
+    if (n_objects * args.nu < args.na):
+        _exit_with_error(dedent('''
+            Error: number of C/D objects (data objects + collections) times
+            users accounts should be equal to or more than ACL map
+            entries. Add more collections, data objects and/or user
+            accounts.'''))
+
+
 def main():
     args = get_arguments()
+    check_args(args)
     data = DataGenerator(args)
     if data.db_exists(args.db_name):
         print("Error: database already exists.")
