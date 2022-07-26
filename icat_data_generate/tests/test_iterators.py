@@ -46,25 +46,21 @@ class TestIterators(unittest.TestCase):
     def test_metadatamap_iterator(self):
         length = 2
         extend_length = 3
-        oid_sample = iter([[1], [2]])
-        oid_sample_extend = iter([[3], [4], [5]])
-        mid_sample = iter([[1], [2]])
-        mid_sample_extend = iter([[3], [4], [5]])
-        i = MetadataMapIterator(length, oid_sample, mid_sample)
+        oid_subset = [[1], [2]]
+        mid_subset = [[1], [2], [3], [4]]
+        i = MetadataMapIterator(length, oid_subset, mid_subset)
         self.assertEqual(len(list(i)), length)
-        i.extend(extend_length, oid_sample_extend, mid_sample_extend)
+        i.extend(extend_length)
         self.assertEqual(len(list(i)), extend_length)
 
     def test_accessmap_iterator(self):
         length = 2
         extend_length = 3
-        oid_sample = iter([[1], [2]])
-        oid_sample_extend = iter([[3], [4], [5]])
-        uid_sample = iter([[1], [2]])
-        uid_sample_extend = iter([[3], [4], [5]])
-        i = AccessMapIterator(length, oid_sample, uid_sample)
+        oid_subset = [[1], [2]]
+        uid_subset = [[1], [2], [3], [4]]
+        i = AccessMapIterator(length, oid_subset, uid_subset)
         self.assertEqual(len(list(i)), length)
-        i.extend(extend_length, oid_sample_extend, uid_sample_extend)
+        i.extend(extend_length)
         self.assertEqual(len(list(i)), extend_length)
 
     def test_coll_iterator(self):

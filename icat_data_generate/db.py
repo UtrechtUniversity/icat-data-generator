@@ -8,6 +8,7 @@ from icat_data_generate.iterators.metadata_iterator import MetadataIterator
 from icat_data_generate.iterators.metadatamap_iterator import MetadataMapIterator
 from icat_data_generate.iterators.resc_iterator import RescIterator
 from icat_data_generate.iterators.user_iterator import UserIterator
+from icat_data_generate.msp import compute_msp
 
 import psycopg2
 from psycopg2 import extras
@@ -23,6 +24,8 @@ class DataGenerator:
         self.coll_iterator = None
         self.data_iterator = None
         self.meta_iterator = None
+        self.metamap_iterator = None
+        self.acl_iterator = None
 
     def _get_connection(self, initial_connection):
         a = self.args
@@ -119,13 +122,7 @@ class DataGenerator:
         retries_left = number
         cur = self.conn.cursor()
         num_left = number
-        # We currently don't have a way to check uniqueness of meta data map and ACL
-        # entries before inserting them. We process them one at a time, so we can optimize
-        # later.
-        if table in ["r_objt_access", "r_objt_metamap"]:
-            batch_size = 1
-        else:
-            batch_size = self.args.batch_size
+        batch_size = self.args.batch_size
         # We process data in batches here in order to be able to query random
         # referential external keys in the iterator functions in an efficient way.
         while num_left > 0:
@@ -180,22 +177,30 @@ class DataGenerator:
         return self.meta_iterator
 
     def gen_data_metamap(self, number):
-        meta_id_sample = self._get_random_sample("r_meta_main",
-                                                 ["meta_id"],
-                                                 self._count_rows("r_meta_main"),
-                                                 number)
-        return MetadataMapIterator(number,
-                                   self.gen_objectid_sample(number),
-                                   meta_id_sample)
+        if self.metamap_iterator is None:
+            num_meta = self.args.nm
+            num_object = self.args.nc + self.args.nd
+            (num_subset_meta, num_subset_object) = compute_msp(num_meta, num_object, self.args.nmm)
+            subset_meta = self._get_id_subset("r_meta_main", "meta_id", num_subset_meta)
+            subset_object = self._get_object_id_subset(num_subset_object)
+            self.metamap_iterator = MetadataMapIterator(number, subset_object, subset_meta)
+        else:
+            self.metamap_iterator.extend(number)
+
+        return self.metamap_iterator
 
     def gen_data_access(self, number):
-        user_id_sample = self._get_random_sample("r_user_main",
-                                                 ["user_id"],
-                                                 self._count_rows("r_user_main"),
-                                                 number)
-        return AccessMapIterator(number,
-                                 self.gen_objectid_sample(number),
-                                 user_id_sample)
+        if self.acl_iterator is None:
+            num_object = self.args.nc + self.args.nd
+            num_user = self.args.nu
+            (num_subset_user, num_subset_object) = compute_msp(num_user, num_object, self.args.na)
+            subset_user = self._get_id_subset("r_user_main", "user_id", num_subset_user)
+            subset_object = self._get_object_id_subset(num_subset_object)
+            self.acl_iterator = AccessMapIterator(number, subset_object, subset_user)
+        else:
+            self.acl_iterator.extend(number)
+
+        return self.acl_iterator
 
     def gen_objectid_sample(self, number):
         if number % 2 == 0:
@@ -261,6 +266,24 @@ class DataGenerator:
             cur.execute(query)
             count = cur.fetchall()
             return count[0][0]
+
+    def _get_object_id_subset(self, num_subset):
+        num_do = self._count_rows("r_data_main")
+        num_co = self._count_rows("r_coll_main")
+        if num_do + num_co < num_subset:
+            raise ValueError("Too few data objects / collection for subset.")
+        num_do_subset = min(num_do, num_subset)
+        num_co_subset = num_subset - num_do
+        subset = self._get_id_subset("r_data_main", "data_id", num_do_subset)
+        if num_co_subset > 0:
+            subset.extend(self._get_id_subset("r_coll_main", "coll_id", num_co_subset))
+        return subset
+
+    def _get_id_subset(self, table, column, num_subset):
+        query = f"SELECT {column} FROM {table} ORDER BY {column} LIMIT {str(num_subset)}"
+        with self.conn.cursor() as cur:
+            cur.execute(query)
+            return(list(cur.fetchall()))
 
     def _get_random_sample(self, table, columns, num_rows, num_sample):
         """ Gets a list of samples from a particular column of a
