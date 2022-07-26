@@ -1,6 +1,7 @@
 import re
 import sys
 from argparse import ArgumentParser, ArgumentTypeError
+from math import sqrt
 from textwrap import dedent
 
 from icat_data_generate import icat_schemas
@@ -122,6 +123,10 @@ def _exit_with_error(message):
     sys.exit(1)
 
 
+def _print_warning(message):
+    print(f"Warning: {message}", file=sys.stderr)
+
+
 def check_args(args):
     n_objects = args.nc + args.nd
     if (n_objects * args.nm < args.nmm):
@@ -136,6 +141,36 @@ def check_args(args):
             users accounts should be equal to or more than ACL map
             entries. Add more collections, data objects and/or user
             accounts.'''))
+    if args.nmm > 1000:
+        if (n_objects < sqrt(args.nmm)):
+            _print_warning(dedent('''
+                Number of C/D objects (data objects + collections) is low
+                relative to number of metadata map entries. It is better
+                for memory efficiency, to set the number of C/D objects
+                higher than or equal to the square root of the number
+                of metadata map entries.'''))
+        if (args.nm < sqrt(args.nmm)):
+            _print_warning(dedent('''
+                Number of metadata entries is low relative to number of
+                metadata map entries. It is better for memory efficiency
+                to set the number of metadata map entries
+                higher than or equal to the square root of the number
+                of metadata map entries.'''))
+    if args.na > 1000:
+        if (n_objects < sqrt(args.na)):
+            _print_warning(dedent('''
+                Number of C/D objects (data objects + collections) is low
+                relative to number of ACL entries. It is better
+                for memory efficiency, to set the number of C/D objects
+                higher than or equal to the square root of the number
+                of ACL entries.'''))
+        if (args.nu < sqrt(args.na)):
+            _print_warning(dedent('''
+                Number of users is low relative to number of
+                ACL entries. It is better for memory efficiency
+                to set the number of user entries
+                higher than or equal to the square root of the number
+                of ACL entries.'''))
 
 
 def main():
