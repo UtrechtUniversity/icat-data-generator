@@ -73,6 +73,57 @@ match the Postgres account you will be using):
 icat-data-gen --nc 20000 -d icat_test -u postgres -p postgres
 ```
 
+### Ubuntu 20.04 LTS
+
+First install PostgreSQL and development dependencies of psycopg2. These example
+commands are based on PostgreSQL 11, but it should work with other PostgreSQL
+versions as well.
+
+```
+wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+sudo apt update
+sudo apt install postgresql-11
+sudo apt install python3-dev python3-virtualenv gcc
+```
+
+Start Postgres:
+
+```
+sudo pg_ctlcluster 11 main start
+```
+
+Set a password on the Postgres database account, or create another account
+you would like to use for the data generator. Example:
+
+
+```
+sudo -iu postgres psql
+psql (11.16 (Ubuntu 11.16-1.pgdg20.04+1))
+Type "help" for help.
+
+postgres=# \password postgres
+Enter new password:
+Enter it again:
+postgres=# \q
+```
+
+Install the data generator in a virtualenv. Example:
+
+```
+git clone https://github.com/UtrechtUniversity/icat-data-generator.git
+virtualenv --python /usr/bin/python3 venv
+source venv/bin/activate
+pip3 install --upgrade ./icat-data-generator
+```
+
+Now you can use the data generator to generate a test iCAT database, like
+so (adjust the credentials in the -u and -p parameters so that they
+match the Postgres account you will be using):
+
+```
+icat-data-gen --nc 20000 -d icat_test -u postgres -p postgres
+```
 
 ## Usage
 
