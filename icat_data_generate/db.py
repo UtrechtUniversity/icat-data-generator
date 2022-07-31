@@ -138,10 +138,13 @@ class DataGenerator:
                     else:
                         print(f"Out of uniqueness violation retries for table {table}")
                         exit(1)
-                # We recalculate the number of records left to add based on row count, so that
-                # we can adjust for inserts that failed (if any) and any initial seed data in the table.
-                # Execute_values doesn't return a row count, so we can't rely on that either.
-                num_left = max(0, number-self._count_rows(table))
+                # We recalculate the number of records left to add based on row count after what would
+                # be the last insert, or the one before that, so that we can adjust for inserts that
+                # failed (if any).
+                if num_left > cur_batch_size:
+                    num_left -= cur_batch_size
+                else:
+                    num_left = max(0, number-self._count_rows(table))
 
     def add_seed_data(self):
         with self.conn.cursor() as cur:
@@ -203,6 +206,12 @@ class DataGenerator:
         return self.acl_iterator
 
     def gen_objectid_sample(self, number):
+        """Returns sample of data object and collection IDs. Should only be invoked
+           once collection and data object tables have been initialized.
+
+           :param number: size of sample
+           :returns: list of collection / data object IDs
+        """
         if number % 2 == 0:
             number_coll_meta = int(number / 2)
             number_do_meta = int(number / 2)
@@ -212,11 +221,11 @@ class DataGenerator:
             number_do_meta = int(number / 2) + 1
         coll_id_sample = self._get_random_sample("r_coll_main",
                                                  ["coll_id"],
-                                                 self._count_rows("r_coll_main"),
+                                                 self.args.nc,
                                                  number_coll_meta)
         do_id_sample = self._get_random_sample("r_data_main",
                                                ["data_id"],
-                                               self._count_rows("r_data_main"),
+                                               self.args.nd,
                                                number_do_meta)
         return itertools.chain.from_iterable(zip(coll_id_sample, do_id_sample))
 
@@ -227,7 +236,7 @@ class DataGenerator:
                                                    number)
         owner_sample = self._get_random_sample("r_user_main",
                                                ["user_name"],
-                                               self._count_rows("r_user_main"),
+                                               self.args.nu,
                                                number)
         if self.coll_iterator is None:
             self.coll_iterator = CollectionIterator(number,
@@ -240,15 +249,15 @@ class DataGenerator:
     def gen_data_do(self, number):
         coll_sample = self._get_random_sample("r_coll_main",
                                               ["coll_id", "coll_name"],
-                                              self._count_rows("r_coll_main"),
+                                              self.args.nc,
                                               number)
         resc_sample = self._get_random_sample("r_resc_main",
                                               ["resc_name"],
-                                              self._count_rows("r_resc_main"),
+                                              self.args.nr,
                                               number)
         user_sample = self._get_random_sample("r_user_main",
                                               ["user_name"],
-                                              self._count_rows("r_user_main"),
+                                              self.args.nu,
                                               number)
         if self.data_iterator is None:
             self.data_iterator = DataObjectIterator(number,
@@ -268,8 +277,8 @@ class DataGenerator:
             return count[0][0]
 
     def _get_object_id_subset(self, num_subset):
-        num_do = self._count_rows("r_data_main")
-        num_co = self._count_rows("r_coll_main")
+        num_do = self.args.nd
+        num_co = self.args.nc
         if num_do + num_co < num_subset:
             raise ValueError("Too few data objects / collection for subset.")
         num_do_subset = min(num_do, num_subset)
@@ -283,7 +292,7 @@ class DataGenerator:
         query = f"SELECT {column} FROM {table} ORDER BY {column} LIMIT {str(num_subset)}"
         with self.conn.cursor() as cur:
             cur.execute(query)
-            return(list(cur.fetchall()))
+            return list(cur.fetchall())
 
     def _get_random_sample(self, table, columns, num_rows, num_sample):
         """ Gets a list of samples from a particular column of a
