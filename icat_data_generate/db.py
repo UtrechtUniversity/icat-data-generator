@@ -314,7 +314,7 @@ class DataGenerator:
         sample_retry = 0
         while sample_source_size == 0:
             if sample_retry > max_sample_retries:
-                raise Exception("To many retries when getting random sample")
+                raise Exception("Too many retries when getting random sample")
 
             query_factor = 1.5
             query_prob = min([1.0, (num_sample / num_rows) * query_factor])
