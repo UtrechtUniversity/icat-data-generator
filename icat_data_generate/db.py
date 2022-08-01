@@ -37,6 +37,10 @@ class DataGenerator:
         conn.autocommit = True
         return conn
 
+    def _db_supports_tablesample(self, conn):
+        # PostgreSQL 10.x and up support TABLESAMPLE
+        return conn.server_version > 100000
+
     def connect(self):
         self.conn = self._get_connection(False)
 
@@ -61,6 +65,12 @@ class DataGenerator:
             cur.execute(schema)
 
     def populate_data(self):
+        # Initialize tsm_system_rows if needed
+        if self._db_supports_tablesample(self.conn):
+            with self.conn.cursor() as cur:
+                if self.args.verbose:
+                    print("Installing tsm_system_rows extension ...")
+                cur.execute("CREATE EXTENSION tsm_system_rows;")
         # Users
         user_query = "INSERT INTO r_user_main (user_id, user_name, user_type_name, zone_name) VALUES %s"
         user_template = "(NEXTVAL('R_ObjectID'), %s, %s, %s)"
@@ -301,33 +311,40 @@ class DataGenerator:
             :param table: name of database table
             :param columns: list of database columns to return
             :param num_rows: number of rows in the table (so that we don't have to do
-                             table count for every sample).
+                             table count for every sample). This parameter is only used
+                             on PostgreSQL versions that don't have tsm_system_rows.
             :param num_sample: number of samples.
             :returns: random list of result tuples
             :raises Exception: if unable to retrieve sample
         """
-        # Set random probability to select a row a bit higher than proportional
-        # in order to reduce the chance we end up with fewer rows than
-        # num_sample. Loop until we have selected at least 1 sample.
-        sample_source_size = 0
-        max_sample_retries = 20
-        sample_retry = 0
-        while sample_source_size == 0:
-            if sample_retry > max_sample_retries:
-                raise Exception("Too many retries when getting random sample")
-
-            query_factor = 1.5
-            query_prob = min([1.0, (num_sample / num_rows) * query_factor])
-
-            column_list = str.join(",", columns)
-
-            query = f"SELECT {column_list} FROM {table} WHERE RANDOM() < {str(query_prob)}"
-
+        column_list = str.join(",", columns)
+        if self._db_supports_tablesample(self.conn):
             with self.conn.cursor() as cur:
+                query = f"SELECT {column_list} FROM {table} TABLESAMPLE SYSTEM_ROWS ({str(num_sample)});"
                 cur.execute(query)
                 sample = cur.fetchall()
-                sample_source_size = len(sample)
+            return iter(list(sample))
+        else:
+            # Set random probability to select a row a bit higher than proportional
+            # in order to reduce the chance we end up with fewer rows than
+            # num_sample. Loop until we have selected at least 1 sample.
+            sample_source_size = 0
+            max_sample_retries = 20
+            sample_retry = 0
+            while sample_source_size == 0:
+                if sample_retry > max_sample_retries:
+                    raise Exception("Too many retries when getting random sample")
 
-            sample_retry += 1
+                query_factor = 1.5
+                query_prob = min([1.0, (num_sample / num_rows) * query_factor])
 
-        return iter(random.choices(sample, k=num_sample))
+                query = f"SELECT {column_list} FROM {table} WHERE RANDOM() < {str(query_prob)}"
+
+                with self.conn.cursor() as cur:
+                    cur.execute(query)
+                    sample = cur.fetchall()
+                    sample_source_size = len(sample)
+
+                sample_retry += 1
+
+            return iter(random.choices(sample, k=num_sample))
